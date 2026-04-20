@@ -47,7 +47,20 @@ export function usePlayer(queue: Song[] = []): UsePlayerReturn {
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const currentIndexRef = useRef<number>(-1);
 
+  // --- Refs to prevent Stale Closures ---
+  const queueRef = useRef(queue);
+  const playerStateRef = useRef(playerState);
+  const currentSongRef = useRef(currentSong);
+  const useCachedAudioRef = useRef(useCachedAudio);
+  const playSongRef = useRef<((song: Song, queue?: Song[]) => Promise<void>) | null>(null);
+
   const { startVisualizer, stopVisualizer } = useAudioVisualizer();
+
+  // Keep refs updated with latest values
+  useEffect(() => { queueRef.current = queue; }, [queue]);
+  useEffect(() => { playerStateRef.current = playerState; }, [playerState]);
+  useEffect(() => { currentSongRef.current = currentSong; }, [currentSong]);
+  useEffect(() => { useCachedAudioRef.current = useCachedAudio; }, [useCachedAudio]);
 
   // Initialize YouTube API
   useEffect(() => {
@@ -68,6 +81,82 @@ export function usePlayer(queue: Song[] = []): UsePlayerReturn {
       }
     }
   }, [queue, currentSong]);
+
+  // Handle song end (using refs to avoid stale closures)
+  const handleSongEnd = useCallback(() => {
+    const { repeatMode } = playerStateRef.current;
+    const songQueue = queueRef.current;
+    const song = currentSongRef.current;
+
+    if (repeatMode === 'one') {
+      if (song && playSongRef.current) {
+        playSongRef.current(song, songQueue);
+      }
+      return;
+    }
+
+    const currentIndex = songQueue.findIndex((s) => s.videoId === song?.videoId);
+
+    if (repeatMode === 'all' && songQueue.length > 0) {
+      const nextIdx = (currentIndex + 1) % songQueue.length;
+      if (playSongRef.current) playSongRef.current(songQueue[nextIdx], songQueue);
+      return;
+    }
+
+    if (currentIndex !== -1 && currentIndex < songQueue.length - 1) {
+      if (playSongRef.current) playSongRef.current(songQueue[currentIndex + 1], songQueue);
+    } else {
+      // Stop playing if queue is finished and no repeat
+      setPlayerState(prev => ({ ...prev, isPlaying: false, isPaused: true }));
+    }
+  }, []);
+
+  // Update player state from YouTube player (polled via interval)
+  const updatePlayerState = useCallback(() => {
+    const ytPlayer = YouTubePlayer.getPlayer();
+    if (!ytPlayer) return;
+
+    try {
+      const state = ytPlayer.getPlayerState();
+      const isPlaying = state === YTState.PLAYING;
+      const currentTime = ytPlayer.getCurrentTime() || 0;
+      const duration = ytPlayer.getDuration() || 0;
+
+      setPlayerState((prev) => ({
+        ...prev,
+        isPlaying,
+        isPaused: state === YTState.PAUSED,
+        currentTime,
+        duration,
+      }));
+
+      if (state === YTState.ENDED) {
+        handleSongEnd();
+      }
+    } catch (error) {
+      console.error('Error fetching YT player state:', error);
+    }
+  }, [handleSongEnd]);
+
+  // Start/Stop player state polling
+  useEffect(() => {
+    const updateRef = updatePlayerState; // capture latest
+    
+    if (playerState.isPlaying) {
+      playerIntervalRef.current = window.setInterval(updateRef, 500);
+    } else {
+      if (playerIntervalRef.current) {
+        window.clearInterval(playerIntervalRef.current);
+        playerIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (playerIntervalRef.current) {
+        window.clearInterval(playerIntervalRef.current);
+      }
+    };
+  }, [playerState.isPlaying, updatePlayerState]);
 
   // Cleanup on unmount
   const cleanup = useCallback(() => {
@@ -90,72 +179,6 @@ export function usePlayer(queue: Song[] = []): UsePlayerReturn {
     return cleanup;
   }, [cleanup]);
 
-  // Handle song end
-  const handleSongEnd = useCallback(
-    (songQueue: Song[]) => {
-      const { repeatMode } = playerState;
-
-      if (repeatMode === 'one') {
-        if (currentSong) {
-          playSong(currentSong, songQueue);
-        }
-        return;
-      }
-
-      if (repeatMode === 'all' && songQueue.length > 0) {
-        playSong(songQueue[0], songQueue);
-        return;
-      }
-
-      const currentIndex = currentIndexRef.current;
-      if (currentIndex !== -1 && currentIndex < songQueue.length - 1) {
-        playSong(songQueue[currentIndex + 1], songQueue);
-      }
-    },
-    [playerState.repeatMode, currentSong]
-  );
-
-  // Update player state from YouTube player
-  const updatePlayerState = useCallback(() => {
-    const ytPlayer = YouTubePlayer.getPlayer();
-    if (!ytPlayer) return;
-
-    const state = ytPlayer.getPlayerState();
-    const isPlaying = state === YTState.PLAYING;
-    const currentTime = ytPlayer.getCurrentTime();
-    const duration = ytPlayer.getDuration();
-
-    setPlayerState((prev) => ({
-      ...prev,
-      isPlaying,
-      isPaused: state === YTState.PAUSED,
-      currentTime,
-      duration,
-    }));
-
-    if (state === YTState.ENDED && currentSong) {
-      handleSongEnd(queue);
-    }
-  }, [currentSong, queue, handleSongEnd]);
-
-  // Start player state polling
-  useEffect(() => {
-    if (playerState.isPlaying) {
-      playerIntervalRef.current = window.setInterval(updatePlayerState, 500);
-    } else {
-      if (playerIntervalRef.current) {
-        window.clearInterval(playerIntervalRef.current);
-        playerIntervalRef.current = null;
-      }
-    }
-
-    return () => {
-      if (playerIntervalRef.current) {
-        window.clearInterval(playerIntervalRef.current);
-      }
-    };
-  }, [playerState.isPlaying, updatePlayerState]);
-
   // Play song function
   const playSong = useCallback(async (song: Song, songQueue: Song[] = []) => {
     try {
@@ -165,8 +188,10 @@ export function usePlayer(queue: Song[] = []): UsePlayerReturn {
       }
       if (audioElementRef.current) {
         audioElementRef.current.pause();
+        audioElementRef.current.removeEventListener('ended', handleSongEnd);
         audioElementRef.current = null;
       }
+      stopVisualizer();
 
       // Check if song is cached
       const cachedSong = await loadCachedSong(song.videoId);
@@ -176,11 +201,10 @@ export function usePlayer(queue: Song[] = []): UsePlayerReturn {
         const blobUrl = URL.createObjectURL(cachedSong.blob);
         setAudioUrl(blobUrl);
 
-        // Create audio element for cached audio
         const audio = new Audio(blobUrl);
         audioElementRef.current = audio;
 
-        audio.addEventListener('ended', () => handleSongEnd(songQueue));
+        audio.addEventListener('ended', handleSongEnd);
         audio.addEventListener('timeupdate', () => {
           setPlayerState((prev) => ({
             ...prev,
@@ -189,14 +213,19 @@ export function usePlayer(queue: Song[] = []): UsePlayerReturn {
           }));
         });
 
+        audio.volume = playerStateRef.current.volume / 100;
         audio.play();
         startVisualizer(audio);
       } else {
         setUseCachedAudio(false);
         setAudioUrl(null);
 
-        // Play via YouTube
-        YouTubePlayer.loadVideo(song.videoId);
+        // Play via YouTube safely
+        try {
+          YouTubePlayer.loadVideo(song.videoId);
+        } catch (err) {
+          console.error('YouTube Player load error:', err);
+        }
       }
 
       setCurrentSong(song);
@@ -207,73 +236,82 @@ export function usePlayer(queue: Song[] = []): UsePlayerReturn {
         isPlaying: true,
         isPaused: false,
         currentTime: 0,
-        duration: song.durationSeconds,
+        duration: song.durationSeconds || 0,
       }));
     } catch (error) {
       console.error('Error playing song:', error);
     }
-  }, [audioUrl, handleSongEnd, startVisualizer]);
+  }, [audioUrl, handleSongEnd, startVisualizer, stopVisualizer]);
+
+  // Keep playSong ref updated
+  useEffect(() => { playSongRef.current = playSong; }, [playSong]);
 
   const pause = useCallback(() => {
-    if (useCachedAudio && audioElementRef.current) {
+    if (useCachedAudioRef.current && audioElementRef.current) {
       audioElementRef.current.pause();
-      stopVisualizer();
     } else {
-      YouTubePlayer.pause();
+      try { YouTubePlayer.pause(); } catch (e) { console.error(e); }
     }
+    stopVisualizer();
     setPlayerState((prev) => ({ ...prev, isPlaying: false, isPaused: true }));
-  }, [useCachedAudio, audioElementRef, stopVisualizer]);
+  }, [stopVisualizer]);
 
   const resume = useCallback(() => {
-    if (useCachedAudio && audioElementRef.current) {
+    if (useCachedAudioRef.current && audioElementRef.current) {
       audioElementRef.current.play();
       startVisualizer(audioElementRef.current);
     } else {
-      YouTubePlayer.play();
+      try { YouTubePlayer.play(); } catch (e) { console.error(e); }
     }
     setPlayerState((prev) => ({ ...prev, isPlaying: true, isPaused: false }));
-  }, [useCachedAudio, audioElementRef, startVisualizer]);
+  }, [startVisualizer]);
 
   const togglePlay = useCallback(() => {
-    if (playerState.isPlaying) {
+    if (playerStateRef.current.isPlaying) {
       pause();
     } else {
       resume();
     }
-  }, [playerState.isPlaying, pause, resume]);
+  }, [pause, resume]);
 
   const seek = useCallback((time: number) => {
-    if (useCachedAudio && audioElementRef.current) {
+    if (useCachedAudioRef.current && audioElementRef.current) {
       audioElementRef.current.currentTime = time;
     } else {
-      YouTubePlayer.seekTo(time);
+      try { YouTubePlayer.seekTo(time); } catch (e) { console.error(e); }
     }
     setPlayerState((prev) => ({ ...prev, currentTime: time }));
-  }, [useCachedAudio, audioElementRef]);
+  }, []);
 
   const seekForward = useCallback(() => {
-    const newTime = Math.min(playerState.currentTime + 10, playerState.duration);
+    const { currentTime, duration } = playerStateRef.current;
+    const newTime = Math.min(currentTime + 10, duration);
     seek(newTime);
-  }, [playerState.currentTime, playerState.duration, seek]);
+  }, [seek]);
 
   const seekBackward = useCallback(() => {
-    const newTime = Math.max(playerState.currentTime - 10, 0);
+    const { currentTime } = playerStateRef.current;
+    const newTime = Math.max(currentTime - 10, 0);
     seek(newTime);
-  }, [playerState.currentTime, seek]);
+  }, [seek]);
 
   const setVolume = useCallback((volume: number) => {
-    YouTubePlayer.setVolume(volume);
+    try { YouTubePlayer.setVolume(volume); } catch (e) {}
+    if (audioElementRef.current) {
+      audioElementRef.current.volume = volume / 100;
+    }
     setPlayerState((prev) => ({ ...prev, volume, isMuted: volume === 0 }));
   }, []);
 
   const toggleMute = useCallback(() => {
-    if (playerState.isMuted) {
-      YouTubePlayer.unMute();
+    const isMuted = !playerStateRef.current.isMuted;
+    if (isMuted) {
+      try { YouTubePlayer.mute(); } catch (e) {}
     } else {
-      YouTubePlayer.mute();
+      try { YouTubePlayer.unMute(); } catch (e) {}
     }
-    setPlayerState((prev) => ({ ...prev, isMuted: !prev.isMuted }));
-  }, [playerState.isMuted]);
+    setPlayerState((prev) => ({ ...prev, isMuted }));
+  }, []);
 
   const setRepeatMode = useCallback((mode: 'none' | 'one' | 'all') => {
     setPlayerState((prev) => ({ ...prev, repeatMode: mode }));
@@ -284,44 +322,46 @@ export function usePlayer(queue: Song[] = []): UsePlayerReturn {
   }, []);
 
   const next = useCallback(() => {
-    if (queue.length === 0) return;
+    const songQueue = queueRef.current;
+    if (songQueue.length === 0) return;
 
     const currentIndex = currentIndexRef.current;
     let nextIndex: number;
 
-    if (playerState.isShuffle) {
-      nextIndex = Math.floor(Math.random() * queue.length);
+    if (playerStateRef.current.isShuffle) {
+      nextIndex = Math.floor(Math.random() * songQueue.length);
     } else {
       nextIndex = currentIndex + 1;
-      if (nextIndex >= queue.length) {
-        nextIndex = playerState.repeatMode === 'all' ? 0 : -1;
+      if (nextIndex >= songQueue.length) {
+        nextIndex = playerStateRef.current.repeatMode === 'all' ? 0 : -1;
       }
     }
 
-    if (nextIndex !== -1 && queue[nextIndex]) {
-      playSong(queue[nextIndex], queue);
+    if (nextIndex !== -1 && songQueue[nextIndex] && playSongRef.current) {
+      playSongRef.current(songQueue[nextIndex], songQueue);
     }
-  }, [queue, playerState.isShuffle, playerState.repeatMode, playSong]);
+  }, []);
 
   const previous = useCallback(() => {
-    if (queue.length === 0) return;
+    const songQueue = queueRef.current;
+    if (songQueue.length === 0) return;
 
     const currentIndex = currentIndexRef.current;
     let prevIndex: number;
 
-    if (playerState.isShuffle) {
-      prevIndex = Math.floor(Math.random() * queue.length);
+    if (playerStateRef.current.isShuffle) {
+      prevIndex = Math.floor(Math.random() * songQueue.length);
     } else {
       prevIndex = currentIndex - 1;
       if (prevIndex < 0) {
-        prevIndex = playerState.repeatMode === 'all' ? queue.length - 1 : -1;
+        prevIndex = playerStateRef.current.repeatMode === 'all' ? songQueue.length - 1 : -1;
       }
     }
 
-    if (prevIndex !== -1 && queue[prevIndex]) {
-      playSong(queue[prevIndex], queue);
+    if (prevIndex !== -1 && songQueue[prevIndex] && playSongRef.current) {
+      playSongRef.current(songQueue[prevIndex], songQueue);
     }
-  }, [queue, playerState.isShuffle, playerState.repeatMode, playSong]);
+  }, []);
 
   const setFullscreen = useCallback((fullscreen: boolean) => {
     setPlayerState((prev) => ({ ...prev, isFullscreen: fullscreen }));
