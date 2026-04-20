@@ -9,7 +9,8 @@ import { searchSongs, clearSearchCache } from '@/utils/api';
 import { usePlayer } from '@/hooks/usePlayer';
 import { useQueue } from '@/hooks/useQueue';
 import { useOfflineCache } from '@/hooks/useOfflineCache';
-import { POPULAR_ARTISTS, TRENDING_SEARCHES, MOODS } from '@/data/artists';
+import { TRENDING_SEARCHES, MOODS } from '@/data/artists';
+import { useArtistImages } from '@/hooks/useArtistImages'; // नया Hook इम्पोर्ट किया
 import { initYouTubePlayer, PlayerState as YTPlayerState } from '@/utils/youtubePlayer';
 
 function App() {
@@ -32,6 +33,9 @@ function App() {
   const { cachedSongs, handleClearCache } = useOfflineCache();
   const { queue, addToQueue, removeFromQueue, clearQueue } = useQueue();
   const player = usePlayer(queue);
+  
+  // नया Hook: यहाँ आर्टिस्ट्स की रियल इमेजेज लोड होंगी
+  const { artists: popularArtists, loading: artistsLoading } = useArtistImages();
 
   // Ref to always keep the latest player instance for callbacks/events
   const playerRef = useRef(player);
@@ -399,17 +403,20 @@ function App() {
           </div>
         </section>
 
-        {/* Popular Artists */}
+        {/* Popular Artists - यहाँ सुधार किया गया है */}
         <section className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <Music className="w-5 h-5 text-violet-400" />
               🎤 Popular Artists
             </h2>
-            <span className="text-xs text-gray-400">{POPULAR_ARTISTS.length} artists</span>
+            <span className="text-xs text-gray-400">{popularArtists.length} artists</span>
           </div>
+          
+          {artistsLoading && <p className="text-gray-400 text-sm mb-3 animate-pulse">Loading artist images...</p>}
+          
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-            {POPULAR_ARTISTS.map((artist) => (
+            {popularArtists.map((artist) => (
               <button
                 key={artist.id}
                 onClick={() => handleArtistClick(artist.name)}
@@ -421,7 +428,8 @@ function App() {
                   className="w-16 h-16 rounded-full mx-auto mb-2 object-cover ring-2 ring-violet-500/30 group-hover:ring-violet-500 transition-all"
                   onError={(e) => {
                     const img = e.target as HTMLImageElement;
-                    img.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(artist.name)}&background=random&color=fff&size=80`;
+                    // अगर इमेज फेल हो तो Dicebear पर वापस जाएगा (100% काम करेगा)
+                    img.src = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(artist.name)}&backgroundColor=c084fc,fb7185,f59e0b,6366f1,22d3ee&textColor=ffffff`;
                   }}
                 />
                 <p className="text-xs font-medium truncate">{artist.name}</p>
