@@ -7,7 +7,7 @@ export interface Artist {
 
 // Helper to generate consistent, beautiful, and reliable avatars (Dicebear API - 100% Uptime)
 const getArtistAvatar = (name: string) => 
-  `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&backgroundColor=c084fc,fb7185,f59e0b,6366f1,22d3ee&textColor=ffffff`;
+  `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&backgroundColor=c084fc,fb7185,f59e0b,6366f1,22d3ee,34d399,f87171&textColor=ffffff`;
 
 export const POPULAR_ARTISTS: Artist[] = [
   // ─── Bollywood Playback Singers ───
@@ -36,6 +36,9 @@ export const POPULAR_ARTISTS: Artist[] = [
   { id: 'mohit-chauhan', name: 'Mohit Chauhan', image: getArtistAvatar('Mohit Chauhan'), genre: 'Bollywood' },
   { id: 'rahat-fateh-ali-khan', name: 'Rahat Fateh Ali Khan', image: getArtistAvatar('Rahat Fateh Ali Khan'), genre: 'Bollywood' },
   { id: 'kanika-kapoor', name: 'Kanika Kapoor', image: getArtistAvatar('Kanika Kapoor'), genre: 'Bollywood' },
+  { id: 'vishal-mishra', name: 'Vishal Mishra', image: getArtistAvatar('Vishal Mishra'), genre: 'Bollywood' },
+  { id: 'stebin-ben', name: 'Stebin Ben', image: getArtistAvatar('Stebin Ben'), genre: 'Bollywood' },
+  { id: 'neeti-mohan', name: 'Neeti Mohan', image: getArtistAvatar('Neeti Mohan'), genre: 'Bollywood' },
 
   // ─── Music Composers ───
   { id: 'ar-rahman', name: 'AR Rahman', image: getArtistAvatar('AR Rahman'), genre: 'Composer' },
@@ -48,6 +51,7 @@ export const POPULAR_ARTISTS: Artist[] = [
   { id: 'sachin-jigar', name: 'Sachin-Jigar', image: getArtistAvatar('Sachin Jigar'), genre: 'Composer' },
   { id: 'salim-sulaiman', name: 'Salim-Sulaiman', image: getArtistAvatar('Salim Sulaiman'), genre: 'Composer' },
   { id: 'jasleen-royal', name: 'Jasleen Royal', image: getArtistAvatar('Jasleen Royal'), genre: 'Composer' },
+  { id: 'ilaiyaraaja', name: 'Ilaiyaraaja', image: getArtistAvatar('Ilaiyaraaja'), genre: 'Composer' },
 
   // ─── Punjabi Artists ───
   { id: 'diljit-dosanjh', name: 'Diljit Dosanjh', image: getArtistAvatar('Diljit Dosanjh'), genre: 'Punjabi' },
@@ -63,6 +67,8 @@ export const POPULAR_ARTISTS: Artist[] = [
   { id: 'hardy-sandhu', name: 'Hardy Sandhu', image: getArtistAvatar('Hardy Sandhu'), genre: 'Punjabi' },
   { id: 'ammy-virk', name: 'Ammy Virk', image: getArtistAvatar('Ammy Virk'), genre: 'Punjabi' },
   { id: 'sunanda-sharma', name: 'Sunanda Sharma', image: getArtistAvatar('Sunanda Sharma'), genre: 'Punjabi' },
+  { id: 'jassi-gill', name: 'Jassi Gill', image: getArtistAvatar('Jassi Gill'), genre: 'Punjabi' },
+  { id: 'ranjit-bawa', name: 'Ranjit Bawa', image: getArtistAvatar('Ranjit Bawa'), genre: 'Punjabi' },
 
   // ─── Bhojpuri Artists ───
   { id: 'pawan-singh', name: 'Pawan Singh', image: getArtistAvatar('Pawan Singh'), genre: 'Bhojpuri' },
@@ -95,6 +101,7 @@ export const POPULAR_ARTISTS: Artist[] = [
   { id: 'devi-sri-prasad', name: 'Devi Sri Prasad', image: getArtistAvatar('Devi Sri Prasad'), genre: 'South Indian' },
   { id: 'dhanush', name: 'Dhanush', image: getArtistAvatar('Dhanush'), genre: 'South Indian' },
   { id: 'shankar-mahadevan', name: 'Shankar Mahadevan', image: getArtistAvatar('Shankar Mahadevan'), genre: 'South Indian' },
+  { id: 'sid-sriram', name: 'Sid Sriram', image: getArtistAvatar('Sid Sriram'), genre: 'South Indian' },
 
   // ─── Sufi / Ghazal ───
   { id: 'nusrat-fateh-ali-khan', name: 'Nusrat Fateh Ali Khan', image: getArtistAvatar('Nusrat Fateh Ali Khan'), genre: 'Sufi' },
@@ -140,6 +147,9 @@ export const POPULAR_ARTISTS: Artist[] = [
   // ─── Haryanvi ───
   { id: 'raj-mawar', name: 'Raj Mawar', image: getArtistAvatar('Raj Mawar'), genre: 'Haryanvi' },
   { id: 'masoom-sharma', name: 'Masoom Sharma', image: getArtistAvatar('Masoom Sharma'), genre: 'Haryanvi' },
+  
+  // ─── Assamese ───
+  { id: 'zubeen-garg', name: 'Zubeen Garg', image: getArtistAvatar('Zubeen Garg'), genre: 'Assamese' },
 ];
 
 // ─── Trending Searches ───
@@ -151,7 +161,7 @@ export const TRENDING_SEARCHES = [
   'Pawan Singh New Song', 'Khesari Lal Yadav Songs', 'Bollywood New Songs 2024',
   'Arijit Singh Best Songs', 'Punjabi Hits 2024', 'Naatu Naatu', 'Srivalli',
   'Hanuman Chalisa', 'Prateek Kuhad Cold Mess', 'Karan Aujla Softly',
-  'Marathi Lavani', 'Gujarati Garba', 'Haryanvi Dance Mix',
+  'Marathi Lavani', 'Gujarati Garba', 'Haryanvi Dance Mix', 'Assamese Hits'
 ];
 
 // ─── Moods ───
