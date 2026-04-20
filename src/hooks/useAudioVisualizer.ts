@@ -11,31 +11,51 @@ export function useAudioVisualizer() {
     try {
       // Create audio context if it doesn't exist
       if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        audioContextRef.current = new AudioContext();
       }
 
       const audioContext = audioContextRef.current;
 
-      // Create analyser
+      // Resume audio context if suspended (Browser Autoplay Policy)
+      if (audioContext.state === 'suspended') {
+        audioContext.resume();
+      }
+
+      // Create analyser if it doesn't exist
       if (!analyserRef.current) {
         analyserRef.current = audioContext.createAnalyser();
         analyserRef.current.fftSize = 256;
+        analyserRef.current.connect(audioContext.destination);
       }
 
       const analyser = analyserRef.current;
 
-      // Create source from audio element
-      if (!sourceRef.current) {
-        sourceRef.current = audioContext.createMediaElementSource(audioElement);
-        sourceRef.current.connect(analyser);
-        analyser.connect(audioContext.destination);
+      // CRITICAL FIX: Disconnect old source and create a new one for the new audio element
+      if (sourceRef.current) {
+        try {
+          sourceRef.current.disconnect();
+        } catch (e) {}
+        sourceRef.current = null;
       }
+
+      // Connect the new audio element to the analyser
+      sourceRef.current = audioContext.createMediaElementSource(audioElement);
+      sourceRef.current.connect(analyser);
 
       const bufferLength = analyser.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
 
+      // Stop any existing animation frame before starting a new one
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+
       const draw = () => {
-        if (!canvasRef.current) return;
+        if (!canvasRef.current) {
+          animationRef.current = requestAnimationFrame(draw);
+          return;
+        }
 
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
@@ -59,9 +79,9 @@ export function useAudioVisualizer() {
           barHeight = (dataArray[i] / 255) * height;
 
           const gradient = ctx.createLinearGradient(0, height, 0, height - barHeight);
-          gradient.addColorStop(0, '#8b5cf6');
-          gradient.addColorStop(0.5, '#ec4899');
-          gradient.addColorStop(1, '#f59e0b');
+          gradient.addColorStop(0, '#8b5cf6'); // violet
+          gradient.addColorStop(0.5, '#ec4899'); // pink
+          gradient.addColorStop(1, '#f59e0b'); // amber
 
           ctx.fillStyle = gradient;
           ctx.fillRect(x, height - barHeight, barWidth, barHeight);
@@ -81,6 +101,13 @@ export function useAudioVisualizer() {
       cancelAnimationFrame(animationRef.current);
       animationRef.current = null;
     }
+    // Disconnect source when stopping to free up memory
+    if (sourceRef.current) {
+      try {
+        sourceRef.current.disconnect();
+      } catch (e) {}
+      sourceRef.current = null;
+    }
   }, []);
 
   const setCanvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
@@ -92,6 +119,11 @@ export function useAudioVisualizer() {
       stopVisualizer();
       if (audioContextRef.current) {
         audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+      if (analyserRef.current) {
+        analyserRef.current.disconnect();
+        analyserRef.current = null;
       }
     };
   }, [stopVisualizer]);
