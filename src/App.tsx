@@ -33,6 +33,12 @@ function App() {
   const { queue, addToQueue, removeFromQueue, clearQueue } = useQueue();
   const player = usePlayer(queue);
 
+  // Ref to always keep the latest player instance for callbacks/events
+  const playerRef = useRef(player);
+  useEffect(() => {
+    playerRef.current = player;
+  }, [player]);
+
   // Load settings from localStorage
   useEffect(() => {
     const savedApiKey = localStorage.getItem('youtubeApiKey') || '';
@@ -59,7 +65,7 @@ function App() {
     }
   }, []);
 
-  // Initialize YouTube player
+  // Initialize YouTube player (with delay to ensure DOM is ready)
   useEffect(() => {
     const initPlayer = async () => {
       try {
@@ -70,8 +76,8 @@ function App() {
           },
           onStateChange: (event) => {
             if (event.data === YTPlayerState.ENDED) {
-              // Auto-play next
-              player.next();
+              // Use ref to avoid stale closure bug
+              playerRef.current.next();
             }
           },
           onError: (event) => {
@@ -84,7 +90,9 @@ function App() {
       }
     };
     
-    initPlayer();
+    // Small delay ensures the DOM container is fully mounted
+    const timer = setTimeout(initPlayer, 500);
+    return () => clearTimeout(timer);
   }, []);
 
   const addToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -103,9 +111,7 @@ function App() {
     setError(null);
 
     try {
-      console.log('Searching:', searchQuery, 'with provider:', provider);
       const result = await searchSongs(searchQuery, apiKey, provider);
-      console.log('Search result:', result);
 
       if (result.songs.length === 0) {
         setError('No songs found. Try a different search term.');
@@ -132,7 +138,7 @@ function App() {
     });
   };
 
-  const toggleFavorite = (song: Song) => {
+  const toggleFavorite = useCallback((song: Song) => {
     setFavorites(prev => {
       const newSet = new Set(prev);
       if (newSet.has(song.videoId)) {
@@ -145,14 +151,20 @@ function App() {
       localStorage.setItem('favorites', JSON.stringify([...newSet]));
       return newSet;
     });
-  };
+  }, [addToast]);
+
+  // Ref for toggleFavorite to prevent re-renders in keyboard hook
+  const toggleFavoriteRef = useRef(toggleFavorite);
+  useEffect(() => {
+    toggleFavoriteRef.current = toggleFavorite;
+  }, [toggleFavorite]);
 
   const handlePlaySong = (song: Song) => {
     addToRecentlyPlayed(song);
     if (!queue.some(s => s.videoId === song.videoId)) {
       addToQueue(song);
     }
-    player.playSong(song, [...queue, song]);
+    playerRef.current.playSong(song, [...queue, song]);
     addToast(`Playing: ${song.title}`, 'success');
   };
 
@@ -212,57 +224,59 @@ function App() {
     localStorage.setItem('darkMode', newMode.toString());
   };
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (bound only once using refs)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
+      const p = playerRef.current;
+
       switch (e.code) {
         case 'Space':
           e.preventDefault();
-          player.togglePlay();
+          p.togglePlay();
           break;
         case 'KeyK':
-          player.togglePlay();
+          p.togglePlay();
           break;
         case 'ArrowRight':
           if (e.shiftKey) {
-            player.seekForward();
+            p.seekForward();
           }
           break;
         case 'ArrowLeft':
           if (e.shiftKey) {
-            player.seekBackward();
+            p.seekBackward();
           }
           break;
         case 'ArrowUp':
           e.preventDefault();
-          player.setVolume(Math.min(100, player.playerState.volume + 10));
+          p.setVolume(Math.min(100, p.playerState.volume + 10));
           break;
         case 'ArrowDown':
           e.preventDefault();
-          player.setVolume(Math.max(0, player.playerState.volume - 10));
+          p.setVolume(Math.max(0, p.playerState.volume - 10));
           break;
         case 'KeyM':
-          player.toggleMute();
+          p.toggleMute();
           break;
         case 'KeyN':
-          player.next();
+          p.next();
           break;
         case 'KeyP':
-          player.previous();
+          p.previous();
           break;
         case 'KeyS':
-          player.toggleShuffle();
+          p.toggleShuffle();
           break;
         case 'KeyR':
           const modes: Array<'none' | 'one' | 'all'> = ['none', 'one', 'all'];
-          const currentIndex = modes.indexOf(player.playerState.repeatMode);
-          player.setRepeatMode(modes[(currentIndex + 1) % modes.length]);
+          const currentIndex = modes.indexOf(p.playerState.repeatMode);
+          p.setRepeatMode(modes[(currentIndex + 1) % modes.length]);
           break;
         case 'KeyF':
-          if (player.currentSong) {
-            toggleFavorite(player.currentSong);
+          if (p.currentSong) {
+            toggleFavoriteRef.current(p.currentSong);
           }
           break;
       }
@@ -270,7 +284,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [player]);
+  }, []); // Empty dependency ensures it doesn't re-bind and cause bugs
 
   const themeClasses = darkMode
     ? 'bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white'
@@ -286,11 +300,12 @@ function App() {
 
   return (
     <div className={`min-h-screen ${themeClasses} transition-colors duration-300`}>
-      {/* YouTube Player Container (Hidden) */}
+      {/* YouTube Player Container (Safely hidden off-screen) */}
       <div 
         ref={playerContainerRef}
         id="youtube-player" 
-        className="fixed -top-[1000px] -left-[1000px] w-1 h-1 opacity-0 pointer-events-none"
+        className="fixed pointer-events-none"
+        style={{ top: '-9999px', left: '-9999px', width: '1px', height: '1px' }}
         aria-hidden="true"
       />
 
@@ -594,7 +609,7 @@ function App() {
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               const percent = (e.clientX - rect.left) / rect.width;
-              player.seek(percent * player.playerState.duration);
+              playerRef.current.seek(percent * player.playerState.duration);
             }}
           >
             <div
@@ -682,7 +697,7 @@ function App() {
                     const currentIndex = modes.indexOf(player.playerState.repeatMode);
                     player.setRepeatMode(modes[(currentIndex + 1) % modes.length]);
                   }}
-                  className={`p-2 rounded-lg transition-colors ${
+                  className={`p-2 rounded-lg transition-colors relative ${
                     player.playerState.repeatMode !== 'none'
                       ? 'bg-violet-500 text-white'
                       : darkMode
@@ -691,9 +706,9 @@ function App() {
                   }`}
                   title="Repeat (R)"
                 >
-                  <Repeat className={`w-4 h-4 ${player.playerState.repeatMode === 'one' ? 'text-white' : ''}`} />
+                  <Repeat className="w-4 h-4" />
                   {player.playerState.repeatMode === 'one' && (
-                    <span className="absolute text-[8px] font-bold">1</span>
+                    <span className="absolute top-0 right-0 text-[8px] font-bold">1</span>
                   )}
                 </button>
               </div>
@@ -790,7 +805,7 @@ function App() {
                     </div>
                     <button
                       onClick={() => {
-                        player.playSong(song, queue);
+                        playerRef.current.playSong(song, queue);
                       }}
                       className="p-1 hover:text-violet-400"
                     >
